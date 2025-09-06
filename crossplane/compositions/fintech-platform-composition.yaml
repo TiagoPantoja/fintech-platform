@@ -1,0 +1,371 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: fintech-platform-aws
+  labels:
+    provider: aws
+    service: fintech-platform
+spec:
+  compositeTypeRef:
+    apiVersion: platform.fintech.io/v1alpha1
+    kind: XFintechPlatform
+
+  resources:
+    - name: vpc
+      base:
+        apiVersion: ec2.aws.crossplane.io/v1beta1
+        kind: VPC
+        spec:
+          forProvider:
+            cidrBlock: "10.0.0.0/16"
+            enableDnsHostnames: true
+            enableDnsSupport: true
+            tags:
+              Name: "fintech-vpc"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+
+    - name: internet-gateway
+      base:
+        apiVersion: ec2.aws.crossplane.io/v1beta1
+        kind: InternetGateway
+        spec:
+          forProvider:
+            vpcIdSelector:
+              matchControllerRef: true
+            tags:
+              Name: "fintech-igw"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+
+    - name: public-subnet-1
+      base:
+        apiVersion: ec2.aws.crossplane.io/v1beta1
+        kind: Subnet
+        spec:
+          forProvider:
+            availabilityZone: "us-east-1a"
+            cidrBlock: "10.0.1.0/24"
+            mapPublicIpOnLaunch: true
+            vpcIdSelector:
+              matchControllerRef: true
+            tags:
+              Name: "fintech-public-subnet-1"
+              kubernetes.io/role/elb: "1"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+
+    - name: public-subnet-2
+      base:
+        apiVersion: ec2.aws.crossplane.io/v1beta1
+        kind: Subnet
+        spec:
+          forProvider:
+            availabilityZone: "us-east-1b"
+            cidrBlock: "10.0.2.0/24"
+            mapPublicIpOnLaunch: true
+            vpcIdSelector:
+              matchControllerRef: true
+            tags:
+              Name: "fintech-public-subnet-2"
+              kubernetes.io/role/elb: "1"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+
+    - name: private-subnet-1
+      base:
+        apiVersion: ec2.aws.crossplane.io/v1beta1
+        kind: Subnet
+        spec:
+          forProvider:
+            availabilityZone: "us-east-1a"
+            cidrBlock: "10.0.10.0/24"
+            vpcIdSelector:
+              matchControllerRef: true
+            tags:
+              Name: "fintech-private-subnet-1"
+              kubernetes.io/role/internal-elb: "1"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+
+    - name: private-subnet-2
+      base:
+        apiVersion: ec2.aws.crossplane.io/v1beta1
+        kind: Subnet
+        spec:
+          forProvider:
+            availabilityZone: "us-east-1b"
+            cidrBlock: "10.0.11.0/24"
+            vpcIdSelector:
+              matchControllerRef: true
+            tags:
+              Name: "fintech-private-subnet-2"
+              kubernetes.io/role/internal-elb: "1"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+
+    - name: eks-cluster-role
+      base:
+        apiVersion: iam.aws.crossplane.io/v1beta1
+        kind: Role
+        spec:
+          forProvider:
+            assumeRolePolicy: |
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Principal": {
+                      "Service": "eks.amazonaws.com"
+                    },
+                    "Action": "sts:AssumeRole"
+                  }
+                ]
+              }
+            managedPolicyArns:
+              - "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+            tags:
+              Name: "fintech-eks-cluster-role"
+
+    - name: eks-nodegroup-role
+      base:
+        apiVersion: iam.aws.crossplane.io/v1beta1
+        kind: Role
+        spec:
+          forProvider:
+            assumeRolePolicy: |
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Principal": {
+                      "Service": "ec2.amazonaws.com"
+                    },
+                    "Action": "sts:AssumeRole"
+                  }
+                ]
+              }
+            managedPolicyArns:
+              - "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+              - "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+              - "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+            tags:
+              Name: "fintech-eks-nodegroup-role"
+
+    - name: eks-cluster
+      base:
+        apiVersion: eks.aws.crossplane.io/v1beta1
+        kind: Cluster
+        spec:
+          forProvider:
+            version: "1.28"
+            roleArnSelector:
+              matchLabels:
+                Name: "fintech-eks-cluster-role"
+            resourcesVpcConfig:
+              - subnetIdSelector:
+                  matchLabels:
+                    kubernetes.io/role/elb: "1"
+            tags:
+              Name: "fintech-eks-cluster"
+          writeConnectionSecretsToNamespace: crossplane-system
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+
+    - name: eks-nodegroup
+      base:
+        apiVersion: eks.aws.crossplane.io/v1alpha1
+        kind: NodeGroup
+        spec:
+          forProvider:
+            clusterNameSelector:
+              matchControllerRef: true
+            nodeRoleSelector:
+              matchLabels:
+                Name: "fintech-eks-nodegroup-role"
+            subnetIdSelector:
+              matchLabels:
+                kubernetes.io/role/internal-elb: "1"
+            scalingConfig:
+              - minSize: 2
+                maxSize: 6
+                desiredSize: 2
+            instanceTypes:
+              - "t3.medium"
+            amiType: AL2_x86_64
+            capacityType: ON_DEMAND
+            diskSize: 20
+            tags:
+              Name: "fintech-eks-nodegroup"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.nodeInstanceType
+          toFieldPath: spec.forProvider.instanceTypes[0]
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.minNodes
+          toFieldPath: spec.forProvider.scalingConfig[0].minSize
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.maxNodes
+          toFieldPath: spec.forProvider.scalingConfig[0].maxSize
+
+    - name: rds-subnet-group
+      base:
+        apiVersion: rds.aws.crossplane.io/v1alpha1
+        kind: SubnetGroup
+        spec:
+          forProvider:
+            description: "Grupo subnets RDS"
+            subnetIdSelector:
+              matchLabels:
+                kubernetes.io/role/internal-elb: "1"
+            tags:
+              Name: "fintech-rds-subnet-group"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+
+    - name: rds-security-group
+      base:
+        apiVersion: ec2.aws.crossplane.io/v1beta1
+        kind: SecurityGroup
+        spec:
+          forProvider:
+            description: "Security group RDS Postgre"
+            vpcIdSelector:
+              matchControllerRef: true
+            ingress:
+              - fromPort: 5432
+                toPort: 5432
+                protocol: tcp
+                cidrBlocks:
+                  - "10.0.0.0/16"
+            tags:
+              Name: "fintech-rds-sg"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+
+    - name: rds-instance
+      base:
+        apiVersion: rds.aws.crossplane.io/v1alpha1
+        kind: RDSInstance
+        spec:
+          forProvider:
+            dbInstanceClass: "db.t3.micro"
+            engine: postgres
+            engineVersion: "15.4"
+            dbName: fintech
+            masterUsername: postgres
+            allocatedStorage: 20
+            storageType: gp2
+            storageEncrypted: true
+            multiAz: false
+            publiclyAccessible: false
+            dbSubnetGroupNameSelector:
+              matchControllerRef: true
+            vpcSecurityGroupIdSelector:
+              matchControllerRef: true
+            backupRetentionPeriod: 7
+            deletionProtection: false
+            tags:
+              Name: "fintech-rds-postgres"
+          writeConnectionSecretsToNamespace: crossplane-system
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.dbInstanceClass
+          toFieldPath: spec.forProvider.dbInstanceClass
+
+    - name: redis-subnet-group
+      base:
+        apiVersion: elasticache.aws.crossplane.io/v1alpha1
+        kind: SubnetGroup
+        spec:
+          forProvider:
+            description: "Subnets Redis"
+            subnetIdSelector:
+              matchLabels:
+                kubernetes.io/role/internal-elb: "1"
+            tags:
+              Name: "fintech-redis-subnet-group"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+
+    - name: redis-security-group
+      base:
+        apiVersion: ec2.aws.crossplane.io/v1beta1
+        kind: SecurityGroup
+        spec:
+          forProvider:
+            description: "Security group Redis"
+            vpcIdSelector:
+              matchControllerRef: true
+            ingress:
+              - fromPort: 6379
+                toPort: 6379
+                protocol: tcp
+                cidrBlocks:
+                  - "10.0.0.0/16"
+            tags:
+              Name: "fintech-redis-sg"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+
+    - name: redis-cluster
+      base:
+        apiVersion: elasticache.aws.crossplane.io/v1alpha1
+        kind: ReplicationGroup
+        spec:
+          forProvider:
+            description: "Cluster Redis"
+            nodeType: "cache.t3.micro"
+            engine: redis
+            engineVersion: "7.0"
+            numCacheClusters: 1
+            port: 6379
+            parameterGroupName: "default.redis7"
+            subnetGroupNameSelector:
+              matchControllerRef: true
+            securityGroupIdSelector:
+              matchControllerRef: true
+            atRestEncryptionEnabled: false
+            transitEncryptionEnabled: false
+            automaticFailoverEnabled: false
+            multiAzEnabled: false
+            tags:
+              Name: "fintech-redis-cluster"
+          writeConnectionSecretsToNamespace: crossplane-system
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.region
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.redisNodeType
+          toFieldPath: spec.forProvider.nodeType

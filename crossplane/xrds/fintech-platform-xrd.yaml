@@ -1,0 +1,59 @@
+nodeInstanceType:
+  type: string
+  description: "Instância nodes EKS"
+  default: "t3.medium"
+  minNodes:
+    type: integer
+    description: "Número mínimo nodes"
+    default: 2
+  maxNodes:
+    type: integer
+    description: "Número máximo nodes"
+    default: 10
+  redisNodeType:
+    type: string
+    description: "Node Redis"
+    default: "cache.t3.micro"
+  required:
+    - region
+    - environment
+  status:
+    type: object
+    properties:
+      vpc:
+        type: object
+        properties:
+          vpcId:
+            type: string
+          publicSubnetIds:
+            type: array
+            items:
+              type: string
+          privateSubnetIds:
+            type: array
+            items:
+              type: string
+      eks:
+        type: object
+        properties:
+          clusterName:
+            type: string
+          endpoint:
+            type: string
+      rds:
+        type: object
+        properties:
+          endpoint:
+            type: string
+          port:
+            type: integer
+      redis:
+        type: object
+        properties:
+          endpoint:
+            type: string
+          port:
+            type: integer
+  claimNames:
+    kind: FintechPlatform
+    plural: fintechplatforms

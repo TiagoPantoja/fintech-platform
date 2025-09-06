@@ -1,0 +1,17 @@
+apiVersion: platform.fintech.io/v1alpha1
+kind: FintechPlatform
+metadata:
+  name: fintech-dev
+  namespace: default
+spec:
+  parameters:
+    region: "us-east-1"
+    environment: "dev"
+    dbInstanceClass: "db.t3.micro"
+    nodeInstanceType: "t3.medium"
+    minNodes: 2
+    maxNodes: 6
+    redisNodeType: "cache.t3.micro"
+  compositionRef:
+    name: fintech-platform-aws
+  writeConnectionSecretsToNamespace: fintech-system

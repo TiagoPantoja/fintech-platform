@@ -1,0 +1,49 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fintech-ingress
+  namespace: fintech-system
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+    - hosts:
+        - api.fintech.local
+      secretName: fintech-tls
+  rules:
+    - host: api.fintech.local
+      http:
+        paths:
+          - path: /transactions
+            pathType: Prefix
+            backend:
+              service:
+                name: transaction-api
+                port:
+                  number: 8080
+          - path: /users/.*/transactions
+            pathType: Prefix
+            backend:
+              service:
+                name: transaction-api
+                port:
+                  number: 8080
+          - path: /notify
+            pathType: Prefix
+            backend:
+              service:
+                name: notification-service
+                port:
+                  number: 8081
+          - path: /notifications
+            pathType: Prefix
+            backend:
+              service:
+                name: notification-service
+                port:
+                  number: 8081
